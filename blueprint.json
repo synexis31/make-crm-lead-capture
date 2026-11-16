@@ -1,0 +1,296 @@
+{
+  "name": "CRM Lead Capture & Auto-Reply (Make.com)",
+  "flow": [
+    {
+      "id": 1,
+      "mapper": {},
+      "module": "gateway:CustomWebHook",
+      "version": 1,
+      "metadata": {
+        "designer": { "x": 0, "y": 0, "name": "Website form webhook" },
+        "interface": [
+          { "name": "name", "type": "text" },
+          { "name": "email", "type": "text" },
+          { "name": "phone", "type": "text" },
+          { "name": "service_interest", "type": "text" },
+          { "name": "message", "type": "text" }
+        ]
+      },
+      "parameters": { "hook": null, "maxResults": 1 }
+    },
+    {
+      "id": 10,
+      "mapper": {
+        "steps": [{ "operation": "string_trim" }, { "operation": "string_lower" }],
+        "initialValue": "{{1.email}}"
+      },
+      "module": "make-functions:TransformFunctions",
+      "version": 1,
+      "metadata": { "designer": { "x": 300, "y": 0, "name": "Normalise email" } },
+      "parameters": {}
+    },
+    {
+      "id": 9,
+      "filter": {
+        "name": "Required lead fields — non-empty and valid email",
+        "conditions": [
+          [
+            { "a": "{{trim(ifempty(1.name; emptystring))}}", "b": "", "o": "text:notequal" },
+            { "a": "{{trim(ifempty(1.phone; emptystring))}}", "b": "", "o": "text:notequal" },
+            { "a": "{{trim(ifempty(1.service_interest; emptystring))}}", "b": "", "o": "text:notequal" },
+            { "a": "{{trim(ifempty(1.message; emptystring))}}", "b": "", "o": "text:notequal" },
+            { "a": "{{10.result}}", "b": "^[^\\s@]+@[^\\s@.]+(?:\\.[^\\s@.]+)+$", "o": "text:pattern" }
+          ]
+        ]
+      },
+      "mapper": {
+        "range": "A1:I",
+        "select": "map",
+        "sheetId": "LEADS",
+        "spreadsheetId": "YOUR_SPREADSHEET_ID",
+        "includesHeaders": false
+      },
+      "module": "google-sheets:getSheetContent",
+      "version": 2,
+      "metadata": { "designer": { "x": 600, "y": 0, "name": "Read existing leads" } },
+      "parameters": {}
+    },
+    {
+      "id": 11,
+      "mapper": { "3": "{{9.`3`}}", "__ROW_NUMBER__": "{{9.`__ROW_NUMBER__`}}" },
+      "module": "builtin:BasicAggregator",
+      "version": 1,
+      "metadata": { "designer": { "x": 900, "y": 0, "name": "Collect rows" } },
+      "parameters": { "feeder": 9 }
+    },
+    {
+      "id": 12,
+      "mapper": {
+        "key": "__ROW_NUMBER__",
+        "array": "{{11.array}}",
+        "filterKey": "3",
+        "operation": "map",
+        "filterValues": "{{10.result}}"
+      },
+      "module": "make-functions:ArrayFunctions",
+      "version": 1,
+      "metadata": { "designer": { "x": 1200, "y": 0, "name": "Find duplicate by email" } },
+      "parameters": {}
+    },
+    {
+      "id": 13,
+      "mapper": null,
+      "module": "builtin:BasicIfElse",
+      "version": 1,
+      "metadata": { "designer": { "x": 1500, "y": 0 } },
+      "branches": [
+        {
+          "type": "condition",
+          "label": "New lead",
+          "merge": false,
+          "conditions": [[{ "a": "{{length(12.result)}}", "b": "0", "o": "number:equal" }]],
+          "flow": [
+            {
+              "id": 2,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "CRM-{{formatDate(now; \"YYYYMMDDHHmmssSSS\")}}",
+                  "1": "{{now}}",
+                  "2": "{{1.name}}",
+                  "3": "{{10.result}}",
+                  "4": "{{1.phone}}",
+                  "5": "{{1.service_interest}}",
+                  "6": "{{1.message}}",
+                  "7": "New",
+                  "8": "{{now}}"
+                },
+                "sheetId": "LEADS",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "RAW",
+                "insertUnformatted": false
+              },
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "metadata": { "designer": { "x": 1800, "y": 0, "name": "Add new lead" } },
+              "parameters": {}
+            },
+            {
+              "id": 101,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "LEADS-{{2.rowNumber}}",
+                  "1": "{{now}}",
+                  "2": "{{10.result}}",
+                  "3": "{{1.service_interest}}",
+                  "4": "{{1.message}}"
+                },
+                "sheetId": "ENQUIRY_LOG",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "RAW",
+                "insertUnformatted": false
+              },
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "metadata": { "designer": { "x": 2100, "y": -220, "name": "Log enquiry" } },
+              "parameters": {}
+            },
+            {
+              "id": 7,
+              "mapper": {
+                "to": ["{{10.result}}"],
+                "subject": "Thank you for contacting YOUR COMPANY, {{1.name}}",
+                "bodyType": "rawHtml",
+                "content": "<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:560px;color:#1a1a1a;line-height:1.6;font-size:15px\"><p>Dear {{escapeHTML(1.name)}},</p><p>Thank you for contacting <b>YOUR COMPANY</b>. We have received your enquiry about <b>{{escapeHTML(1.service_interest)}}</b> and will reply personally within 24 hours.</p><p>If it is urgent, simply reply to this email.</p><p>Best regards,<br><b>YOUR NAME</b></p></div>"
+              },
+              "module": "google-email:sendAnEmail",
+              "version": 4,
+              "metadata": { "designer": { "x": 2100, "y": 0, "name": "Auto-reply to client" } },
+              "parameters": {},
+              "onerror": [
+                {
+                  "id": 15,
+                  "mapper": { "count": "3", "retry": true, "interval": "15" },
+                  "module": "builtin:Break",
+                  "version": 1,
+                  "metadata": { "designer": { "x": 2400, "y": 0 } },
+                  "parameters": {}
+                }
+              ]
+            },
+            {
+              "id": 16,
+              "mapper": {
+                "to": ["owner@example.com"],
+                "subject": "🔔 New lead: {{1.name}} — {{1.service_interest}}",
+                "bodyType": "rawHtml",
+                "content": "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6\"><h3>New lead (first contact)</h3><table cellpadding=\"6\"><tr><td><b>Name</b></td><td>{{escapeHTML(1.name)}}</td></tr><tr><td><b>Email</b></td><td>{{10.result}}</td></tr><tr><td><b>Phone</b></td><td>{{escapeHTML(1.phone)}}</td></tr><tr><td><b>Service</b></td><td>{{escapeHTML(1.service_interest)}}</td></tr><tr><td valign=\"top\"><b>Message</b></td><td>{{escapeHTML(1.message)}}</td></tr></table><p>The client has already received the automatic thank-you email.</p></div>"
+              },
+              "module": "google-email:sendAnEmail",
+              "version": 4,
+              "metadata": { "designer": { "x": 2400, "y": -150, "name": "Alert owner" } },
+              "parameters": {},
+              "onerror": [
+                {
+                  "id": 18,
+                  "mapper": null,
+                  "module": "builtin:Ignore",
+                  "version": 1,
+                  "metadata": { "designer": { "x": 2700, "y": -150 } },
+                  "parameters": {}
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "else",
+          "label": "Returning lead",
+          "merge": false,
+          "disabled": false,
+          "flow": [
+            {
+              "id": 14,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "2": "{{1.name}}",
+                  "3": "{{10.result}}",
+                  "4": "{{1.phone}}",
+                  "5": "{{1.service_interest}}",
+                  "6": "{{1.message}}",
+                  "8": "{{now}}"
+                },
+                "sheetId": "LEADS",
+                "rowNumber": "{{first(12.result)}}",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "useColumnHeaders": false,
+                "valueInputOption": "RAW"
+              },
+              "module": "google-sheets:updateRow",
+              "version": 2,
+              "metadata": { "designer": { "x": 1800, "y": 150, "name": "Update existing lead" } },
+              "parameters": {}
+            },
+            {
+              "id": 102,
+              "mapper": {
+                "from": "drive",
+                "mode": "select",
+                "values": {
+                  "0": "LEADS-{{first(12.result)}}",
+                  "1": "{{now}}",
+                  "2": "{{10.result}}",
+                  "3": "{{1.service_interest}}",
+                  "4": "{{1.message}}"
+                },
+                "sheetId": "ENQUIRY_LOG",
+                "spreadsheetId": "/YOUR_SPREADSHEET_ID",
+                "includesHeaders": true,
+                "insertDataOption": "INSERT_ROWS",
+                "useColumnHeaders": false,
+                "valueInputOption": "RAW",
+                "insertUnformatted": false
+              },
+              "module": "google-sheets:addRow",
+              "version": 2,
+              "metadata": { "designer": { "x": 2100, "y": 220, "name": "Log enquiry" } },
+              "parameters": {}
+            },
+            {
+              "id": 17,
+              "mapper": {
+                "to": ["owner@example.com"],
+                "subject": "🔁 Returning lead: {{1.name}} — {{1.service_interest}}",
+                "bodyType": "rawHtml",
+                "content": "<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6\"><h3>Returning lead (contacted again)</h3><table cellpadding=\"6\"><tr><td><b>Name</b></td><td>{{escapeHTML(1.name)}}</td></tr><tr><td><b>Email</b></td><td>{{10.result}}</td></tr><tr><td><b>Phone</b></td><td>{{escapeHTML(1.phone)}}</td></tr><tr><td><b>Service</b></td><td>{{escapeHTML(1.service_interest)}}</td></tr><tr><td valign=\"top\"><b>Message</b></td><td>{{escapeHTML(1.message)}}</td></tr></table><p>Their existing row was updated (no duplicate). Please reply personally.</p></div>"
+              },
+              "module": "google-email:sendAnEmail",
+              "version": 4,
+              "metadata": { "designer": { "x": 2400, "y": 220, "name": "Alert owner" } },
+              "parameters": {},
+              "onerror": [
+                {
+                  "id": 19,
+                  "mapper": null,
+                  "module": "builtin:Ignore",
+                  "version": 1,
+                  "metadata": { "designer": { "x": 2700, "y": 220 } },
+                  "parameters": {}
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "designer": { "orphans": [] },
+    "scenario": {
+      "dlq": true,
+      "slots": null,
+      "dataloss": false,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "roundtrips": 1,
+      "sequential": true,
+      "confidential": false,
+      "freshVariables": false,
+      "autoCommitTriggerLast": true
+    }
+  }
+}
